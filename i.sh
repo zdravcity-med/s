@@ -9,6 +9,22 @@ IP=$(curl -fsS -4 https://ifconfig.me/ip || hostname -I | awk '{print $1}')
 DOMAIN=${DOMAIN:-$(echo "$IP" | tr . -).sslip.io}
 KEY=${KEY:-"ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIB/KsCRkSCRPo0dz/2e0IOtXvl4VTubN79Fxgt5FJ7Js zdravcity@MacBook-Pro-Zdravcity.local"}
 
+# у этого хостера path MTU меньше 1500: без уменьшения не проходят ни TLS, ни SSH-рукопожатие
+IFACE=$(ip r | awk '/default/{print $5; exit}')
+[ -n "$IFACE" ] && ip link set "$IFACE" mtu 1300 || true
+cat > /etc/systemd/system/mtu-fix.service <<UNIT
+[Unit]
+Description=Lower MTU (hoster path MTU < 1500)
+After=network-online.target
+Wants=network-online.target
+[Service]
+Type=oneshot
+ExecStart=/bin/sh -c 'ip link set \$(ip r | awk "/default/{print \$5; exit}") mtu 1300'
+[Install]
+WantedBy=multi-user.target
+UNIT
+systemctl daemon-reload; systemctl enable mtu-fix >/dev/null 2>&1 || true
+sed -i 's/^#\?PasswordAuthentication .*/PasswordAuthentication yes/' /etc/ssh/sshd_config 2>/dev/null || true
 mkdir -p /opt/bioqueue /root/.ssh && chmod 700 /root/.ssh
 grep -qF "$KEY" /root/.ssh/authorized_keys 2>/dev/null || echo "$KEY" >> /root/.ssh/authorized_keys
 chmod 600 /root/.ssh/authorized_keys
